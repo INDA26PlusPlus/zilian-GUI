@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "chess"
 version = "0.1.0"
-source = "git+https://github.com/INDA26PlusPlus/datrigel-chess.git#e784e82e89c72e7fdf2609d5e585b4d5ca94ad7a"
+source = "git+https://github.com/INDA26PlusPlus/datrigel-chess.git#c06b7bf046d54cf4a1b34ac8d82e7ceca7931399"
 
 [[package]]
 name = "zilian-GUI"
