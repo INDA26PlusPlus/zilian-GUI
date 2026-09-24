@@ -8,6 +8,7 @@ fn main() {
 
     // fills the created board object.
     gameboard.fill_board();
+    gameboard.
     
     // Displays board with ascii in CLI
     cli_display_board(&gameboard);
