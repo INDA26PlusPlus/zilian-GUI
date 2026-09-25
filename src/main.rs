@@ -203,6 +203,16 @@ impl event::EventHandler for MainState {
         Ok(())
     }
 
+    fn key_down_event(&mut self, ctx: &mut Context, input: ggez::input::keyboard::KeyInput, _repeated: bool) -> Result<(), ggez::GameError> {
+        if self.game_state == "Checkmate".to_string() || self.game_state == "Stalemate".to_string()  {
+            self.game.fill_board();
+            self.game_state = " ".to_string();
+        }
+
+        Ok(())
+
+    }
+
 }
 
 pub fn main() -> GameResult {
