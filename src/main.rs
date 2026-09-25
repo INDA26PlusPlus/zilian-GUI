@@ -115,7 +115,7 @@ impl event::EventHandler for MainState {
             let restart_game = graphics::Mesh::new_rectangle(
                 ctx, 
                 graphics::DrawMode::fill(),
-                Rect::new(100.0, 100.0, 500.0, 150.0), 
+                Rect::new(250.0, 450.0, 500.0, 125.0), 
                 Color::from_rgba(0, 0, 0, 225)
             ).expect(" ");
 
@@ -136,15 +136,17 @@ impl event::EventHandler for MainState {
 
             canvas.draw(
                 graphics::Text::new(restart_text).set_scale(40.0),
-                Vec2::new(100.0, 100.0)
+                Vec2::new(275.0, 475.0)
             );
-            /*
+            
             canvas.draw(
-                graphics::Text::new("Press Enter to restart!").set_scale(40.0),
-                Vec2::new(100.0, 200.0)
+                graphics::Text::new("Press any key to restart!").set_scale(30.0),
+                Vec2::new(295.0, 525.0)
             );
-            */
+            
         }
+
+        
     
 
         canvas.finish(ctx)?;
