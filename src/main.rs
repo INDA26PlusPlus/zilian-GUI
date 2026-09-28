@@ -4,7 +4,7 @@
 const SQUARE_SIZE: f32 = 100.0;
 
 use ggez::{
-    Context, GameResult, event, glam::*, graphics::{self, Color, LineCap::Square, Mesh, Rect},
+    Context, GameResult, event, glam::*, graphics::{self, Color, Mesh, Rect},
 };
 use std::{env, path};
 use chess::*;
@@ -75,7 +75,7 @@ impl event::EventHandler for MainState {
         let mut canvas =
             graphics::Canvas::from_frame(ctx, graphics::Color::from([0.1, 0.2, 0.3, 1.0]));
 
-
+        // Draws squares with pieces on them
         for i in 0..64 {
             // Position of square
             let square_position = Vec2::new((i % 8) as f32 * SQUARE_SIZE, (7 - i / 8) as f32 * SQUARE_SIZE);
@@ -91,13 +91,34 @@ impl event::EventHandler for MainState {
                     ctx,
                     graphics::DrawMode::fill(),
                     Rect::new(100.0, 100.0, SQUARE_SIZE, SQUARE_SIZE),
-                    Color::GREEN
+                    Color::from_rgba(0, 255, 0, 150)
                     )?,
                     square_position
 
                     )
                 }
             }
+
+            // Highlights / marks squares you can move to
+            if !self.clicked_square.is_none() {
+
+                //println!("{}", self.clicked_square.unwrap());
+
+                for x in self.game.fetch_movelist(self.clicked_square.unwrap()) {
+                    canvas.draw(
+                    &graphics::Mesh::new_rectangle(
+                    ctx,
+                    graphics::DrawMode::fill(),
+                    Rect::new(100.0, 100.0, SQUARE_SIZE/3.0, SQUARE_SIZE/3.0),
+                    Color::from_rgba(0, 255, 0, 5)
+                    )?,
+
+                    Vec2::new(((x % 8) as f32 * SQUARE_SIZE)+SQUARE_SIZE/3.0, ((7 - x / 8) as f32 * SQUARE_SIZE)+SQUARE_SIZE/3.0)
+                    );
+                    println!("{}", x)
+                }
+            }
+            
 
             // Draw piece on-top of square;
             let current_piece = self.game.check_square(i);
@@ -146,7 +167,12 @@ impl event::EventHandler for MainState {
             
         }
 
-        
+        let turn_text = if self.turn == chess::Color::Black {"Black's turn".to_string()} else {"White's turn".to_string()};
+        canvas.draw(
+                
+                graphics::Text::new(turn_text).set_scale(30.0),
+                Vec2::new(100.0, 60.0)
+            );
     
 
         canvas.finish(ctx)?;
@@ -157,7 +183,7 @@ impl event::EventHandler for MainState {
     fn mouse_button_down_event(
         &mut self,
         _ctx: &mut Context,
-        button: ggez::winit::event::MouseButton,
+        _button: ggez::winit::event::MouseButton,
         x: f32,
         y: f32,
     ) -> Result<(), ggez::GameError>
@@ -176,7 +202,7 @@ impl event::EventHandler for MainState {
         println!("Game_state {}", self.game_state);
 
         if self.clicked_square == None {
-            if self.game.check_square(square_number).rank != Rank::Empty {
+            if self.game.check_square(square_number).color == self.turn {
                 self.clicked_square = Some(square_number)
             }
         } 
@@ -205,15 +231,15 @@ impl event::EventHandler for MainState {
         Ok(())
     }
 
-    fn key_down_event(&mut self, ctx: &mut Context, input: ggez::input::keyboard::KeyInput, _repeated: bool) -> Result<(), ggez::GameError> {
+    fn key_down_event(&mut self, _ctx: &mut Context, _input: ggez::input::keyboard::KeyInput, _repeated: bool) -> Result<(), ggez::GameError> {
         if self.game_state == "Checkmate".to_string() || self.game_state == "Stalemate".to_string()  {
             self.game.fill_board();
             self.game_state = " ".to_string();
         }
-
         Ok(())
-
     }
+
+
 
 }
 
