@@ -115,7 +115,6 @@ impl event::EventHandler for MainState {
 
                     Vec2::new(((x % 8) as f32 * SQUARE_SIZE)+SQUARE_SIZE/3.0, ((7 - x / 8) as f32 * SQUARE_SIZE)+SQUARE_SIZE/3.0)
                     );
-                    println!("{}", x)
                 }
             }
             

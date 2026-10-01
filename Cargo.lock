@@ -300,7 +300,7 @@ dependencies = [
 [[package]]
 name = "chess"
 version = "0.1.0"
-source = "git+https://github.com/INDA26PlusPlus/datrigel-chess.git#1abbbdebfd74c8f02ef3b29a4267718f6cce9226"
+source = "git+https://github.com/INDA26PlusPlus/datrigel-chess.git#8d7aecf0f83749460b7a93605a74c4af74cbdf15"
 
 [[package]]
 name = "codespan-reporting"
