@@ -6,8 +6,10 @@ const SQUARE_SIZE: f32 = 100.0;
 use ggez::{
     Context, GameResult, event, glam::*, graphics::{self, Color, Mesh, Rect},
 };
-use std::{env, path};
+use std::{env, path, io};
 use chess::*;
+mod network;
+mod manage_board;
 
 struct MainState {
     // represents a square with a background color and a piece on it
@@ -15,15 +17,16 @@ struct MainState {
     game: chess::Board,     // For running game
     clicked_square: Option<usize>, // For moving pieces
     turn: chess::Color,     // For displaying who's turn it is 
-    game_state: String      // For showing check, checkmate, stalemate ect.
-
+    game_state: String,      // For showing check, checkmate, stalemate ect.
+    network: Option<network::Network>, // Network connection (none if local)
+    sending_game: Option<chess::Board> // Copy of board to make moves and send over network
 }
 
 impl MainState {
     // I took the colors from:
     // https://colorswall.com/palette/190559
 
-    fn new(ctx: &mut Context) -> GameResult<MainState> {
+    fn new(ctx: &mut Context, network: Option<network::Network>) -> GameResult<MainState> {
 
         // For displaying pieces
         ctx.gfx.add_font(
@@ -59,7 +62,97 @@ impl MainState {
 
         let game_state: String = " ".to_string();
 
-        Ok(MainState { squares, game, clicked_square, turn, game_state})
+        let sending_game = None;
+
+        Ok(MainState { squares, game, clicked_square, turn, game_state, network, sending_game})
+    }
+
+    // Sends move to opponent before its made given a set of conditions
+    fn send_move(&mut self, start: usize, stop: usize, promotion: Option<Rank>, board: &chess::Board) {
+        let message = manage_board::move_as_string(start, stop, promotion, board);
+
+        // If we have a valid network
+        if self.network.is_some() {
+            match self.network.as_mut().unwrap().send_message(&message) {
+                Ok(()) => (),
+                Err(e) => println!("{:?}", e)
+            }
+        }
+    }
+
+    // Sends a reply/confirmation to the opponent
+    fn send_reply(&mut self, reply: &str) {
+        if self.network.is_some() {
+            match self.network.as_mut().unwrap().send_message(reply) {
+                Ok(()) => (),
+                Err(e) => println!("{:?}", e)
+            }
+        }
+    }
+
+    // Replies to opponents move
+    fn receive_move(&mut self, message: &str) {
+
+        // Turn the message into a move, if failed, reject
+        let (start, stop, promotion, board) = match manage_board::string_as_move(message) {
+            Some(received_move) => received_move,
+            None => {
+                self.send_reply("REJECT");
+                return;
+            }
+        };
+
+        // Reject if moving out of turn
+        let local_color = self.network.as_ref().unwrap().self_color();
+        if self.turn == local_color || self.game.squares[start].color != self.turn {
+            self.send_reply("REJECT");
+            return;
+        }
+
+        // Copy board to check
+        let mut after_move = self.game;
+        after_move.move_piece(start, stop);
+
+        // Invalid move
+        if after_move == self.game {
+            self.send_reply("REJECT");
+            return;
+        }
+
+        // Promotes pawn
+        if promotion.is_some() {
+            after_move.upgrade_pawn(stop, promotion.unwrap());
+        }
+
+        // Compare our "after_move" temp board
+        // With "board" recived from oppoennt
+        if manage_board::board_as_string(&after_move) != board {
+            self.send_reply("REJECT");
+            return;
+        }
+
+        // Move is valid, actually do the move and change the turn
+        self.game = after_move;
+
+        if self.turn == chess::Color::Black {
+            self.turn = chess::Color::White;
+        }
+        else {
+            self.turn = chess::Color::Black;
+        }
+
+        self.game_state = manage_board::check_state(&self.game, self.turn);
+
+        // Give bakc the boardstate or OK if nothing
+        if self.game_state == "Checkmate".to_string() {
+            self.send_reply("CHECKMATE");
+        }
+        else if self.game_state == "Stalemate".to_string() {
+            self.send_reply("STALEMATE");
+        }
+        else {
+            self.send_reply("OK");
+        }
     }
 }
 
@@ -67,6 +160,58 @@ impl event::EventHandler for MainState {
 
     // WUpdate
     fn update(&mut self, _ctx: &mut Context) -> GameResult {
+
+        if self.network.is_some() {
+            let message = match self.network.as_mut().unwrap().receive_message() {
+                Ok(Some(message)) => message,
+                Ok(None) => return Ok(()),
+                Err(e) => {
+                    println!("{:?}", e);
+                    self.network = None;
+                    return Ok(());
+                },
+            };
+
+            match message.as_str() {
+                "OK" | "CHECKMATE" | "STALEMATE" => {
+                    // The move was received and approved
+                    if self.sending_game.is_some() {
+                        self.game = self.sending_game.unwrap();
+
+                        if self.turn == chess::Color::Black {
+                            self.turn = chess::Color::White;
+                        }
+                        else {
+                            self.turn = chess::Color::Black;
+                        }
+
+                        self.game_state = manage_board::check_state(&self.game, self.turn);
+
+                        // Opponent says the game is over
+                        if message == "CHECKMATE" {
+                            self.game_state = "Checkmate".to_string();
+                        }
+                        else if message == "STALEMATE" {
+                            self.game_state = "Stalemate".to_string();
+                        }
+                    }
+
+                    // No longer waiting for a reply
+                    self.sending_game = None;
+                }
+
+                "REJECT" => {
+                    // The move was received and rejected
+                    self.sending_game = None;
+                }
+
+                _ => {
+                    // Not our turn
+                    self.receive_move(&message);
+                }
+            };
+            
+        }
         Ok(())
     }
     
@@ -121,7 +266,7 @@ impl event::EventHandler for MainState {
 
             // Draw piece on-top of square;
             let current_piece = self.game.check_square(i);
-            let piece_text = pice_to_char(current_piece);
+            let piece_text = manage_board::piece_to_char(current_piece);
 
             canvas.draw(
             graphics::Text::new(piece_text)
@@ -166,7 +311,22 @@ impl event::EventHandler for MainState {
             
         }
 
-        let turn_text = if self.turn == chess::Color::Black {"Black's turn".to_string()} else {"White's turn".to_string()};
+        let mut turn_text = 
+        if self.turn == chess::Color::Black {"Black's turn".to_string()} 
+        else {"White's turn".to_string()};
+
+        if self.network.is_some() {
+            if self.network.as_ref().unwrap().is_host() {
+                turn_text.push_str(": HOST");
+            }
+            else {
+                turn_text.push_str(": CLIENT");
+            }
+        }
+        else {
+            turn_text.push_str(": LOCAL");
+        }
+
         canvas.draw(
                 
                 graphics::Text::new(turn_text).set_scale(30.0),
@@ -194,17 +354,53 @@ impl event::EventHandler for MainState {
         if column >= 8 || row >= 8 {
             return Ok(());
         }
-        
+
+        // Can't make moves in network game when not your "network turn" 
+        if let Some(network) = &self.network {
+            if network.self_color() != self.turn {
+                return Ok(());
+            }
+        }
+
+        // Can't make moves when we're still waiting for TCP reply
+        if self.sending_game.is_some() {
+            return Ok(());
+        }
+
         // Finds the square that was clicked on and prints in terminal (mainly for debugging)
         let square_number = (7-row) * 8 + column;
         println!("clicked {}: c{}, r{}", &square_number, column, row);
         println!("Game_state {}", self.game_state);
 
+        // If no square was clicked before
         if self.clicked_square == None {
             if self.game.check_square(square_number).color == self.turn {
                 self.clicked_square = Some(square_number)
             }
         } 
+        // Network game
+        else if self.network.is_some() && (self.game_state==" ".to_string() || self.game_state=="Check".to_string()) {
+            // Makes a copy of the board to make moves on without effecting the real board
+            let mut after_move = self.game;
+            let start = self.clicked_square.unwrap();
+
+            after_move.move_piece(start, square_number);
+            if after_move != self.game {
+                // Will only run if the move was made and was valid according to local
+                let mut promotion = None;
+                if after_move.check_square(square_number).rank == Rank::Pawn && (square_number / 8 == 7 || square_number / 8 == 0) {
+                    after_move.upgrade_pawn(square_number, Rank::Queen);
+                    promotion = Some(Rank::Queen);
+                }
+
+                // Send the move out
+                self.send_move(start, square_number, promotion, &after_move);
+                self.sending_game = Some(after_move);
+            }
+
+            self.clicked_square = None;
+        }
+        // Local game
         else if self.game_state==" ".to_string() || self.game_state=="Check".to_string() {
             // Saves the board before the move was made
             let before_move = self.game;
@@ -221,7 +417,7 @@ impl event::EventHandler for MainState {
                     self.game.upgrade_pawn(square_number, Rank::Queen);
                 }
 
-                self.game_state = check_state(&self.game, self.turn);
+                self.game_state = manage_board::check_state(&self.game, self.turn);
             }
 
             self.clicked_square = None;
@@ -244,6 +440,58 @@ impl event::EventHandler for MainState {
 
 pub fn main() -> GameResult {
 
+    // HERE WE DETERMINE WHAT TYPE OF GAME THIS IS
+    // THAT IS ONE OF:
+    // host, client, local (none)
+    // Then we setup the network depending on that.
+
+    println!("How would you like to play?");
+    println!("1. Host");
+    println!("2. Client");
+    println!("3. Local");
+
+    let mut choice = String::new();
+    io::stdin()
+        .read_line(&mut choice)
+        .expect("Invalid input.");
+    
+    let network = match choice.trim() {
+        // Setup local as host
+        "1" => {
+            println!("Searching for client to join on PORT: 6767...");
+
+            match network::Network::establish_as_host() {
+                Ok(network) => Some(network),
+                Err(error) => {
+                    println!("Search failed: {:?}", error);
+                    return Ok(());
+                }
+            }
+        }
+        // Setup local as client
+        "2" => {
+            println!("Enter address to join (leave empty for 127.0.0.1:6767):");
+            let mut addr = String::new();
+            io::stdin().read_line(&mut addr).expect("Invalid input.");
+            if addr.trim().is_empty() {
+                 addr = "127.0.0.1:6767".to_string();
+            } 
+            else { 
+                addr = addr.trim().to_string();
+            };
+
+            match network::Network::establish_as_client(&addr, chess::Color::White) {
+                Ok(network) => Some(network),
+                Err(e) => {
+                    println!("Failed to join {}: {:?}", addr, e);
+                    return Ok(());
+                }
+            }
+        }
+        // Setup local as "local"
+        _ => None,
+    };
+
     // Make 64 square (0..63)
     // Check if a square was clicked on         (Start)
     // Check if another square was clicked on   (Dest)
@@ -261,105 +509,9 @@ pub fn main() -> GameResult {
     // From where should our build pull information
     let cb = ggez::ContextBuilder::new("super_simple", "ggez").add_resource_path(resource_dir);
     let (mut ctx, event_loop) = cb.build()?;
-    let state = MainState::new(&mut ctx)?;
+    let state = MainState::new(&mut ctx, network)?;
     
     // Run the events in a loop
     event::run(ctx, event_loop, state)
 
-}
-
-
-fn pice_to_char (piece: Piece) -> char {
-
-    let piece_text = match piece.rank {
-        Rank::Pawn => 'p',
-        Rank::Knight => 'n',
-        Rank::Bishop => 'b',
-        Rank::Rook => 'r',
-        Rank::Queen => 'q',
-        Rank::King => 'k',
-        Rank::Empty => ' '
-    };
-
-    if piece.color.eq(&chess::Color::Black) {
-        return piece_text.to_ascii_uppercase();
-    }
-    return piece_text;
-}
-
-fn check_state(board: &Board, color: chess::Color) -> String {
-
-    // If in check but has legal moves -> Check
-    if in_check(board, color) && has_legal_move(board, color) {
-        "Check".to_string()
-    }
-    // In check no legal moves -> Checkmate
-    else if in_check(board, color) && !has_legal_move(board, color) {
-        "Checkmate".to_string()
-    }
-    // Not in check, no legal moves -> Stalemate
-    else if !in_check(board, color) && !has_legal_move(board, color) {
-        "Stalemate".to_string()
-    }
-    else {
-        " ".to_string()
-    }
-}
-
-fn in_check(board: &Board, color: chess::Color) -> bool {
-
-    // Go through all squares
-    for i in 0..64 {
-
-        // If we find friendly king
-        if board.squares[i].rank == Rank::King && board.squares[i].color == color {
-
-            // Set king square
-            let king_square = i;
-
-            // Go through all squares
-            for i in 0..64 {
-
-                // Check if enemy can see the king
-                let piece = board.squares[i];
-                if piece.rank != Rank::Empty && piece.color != color {
-                    let mut board_copy = *board;
-                    if board_copy.fetch_movelist(i).contains(&king_square) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-    }
-    return false;
-
-}
-
-fn has_legal_move(board: &Board, color: chess::Color) -> bool {
-     // Go through all pieces
-     for start in 0..64 {
-
-        // If we find friendly piece
-        if board.squares[start].color == color {
-            // Save board pre-move
-            let mut board_copy = *board;
-
-            for stop in board_copy.fetch_movelist(start) {
-                let mut board_post_test_move = *board;
-                board_post_test_move.move_piece(start, stop);
-
-                // We found legal move
-                if board_copy != board_post_test_move && !in_check(&board_post_test_move, color){
-                    return true;
-                }
-            }
-
-
-
-        }
-     }
-     return false;
-   
 }
