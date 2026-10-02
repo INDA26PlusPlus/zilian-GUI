@@ -12,12 +12,13 @@ mod network;
 mod manage_board;
 
 struct MainState {
-    // represents a square with a background color and a piece on it
+    // Game display parameters
     squares: [Mesh; 64],    // For displaying board
     game: chess::Board,     // For running game
     clicked_square: Option<usize>, // For moving pieces
     turn: chess::Color,     // For displaying who's turn it is 
     game_state: String,      // For showing check, checkmate, stalemate ect.
+    // Network parameters
     network: Option<network::Network>, // Network connection (none if local)
     sending_game: Option<chess::Board> // Copy of board to make moves and send over network
 }
@@ -48,7 +49,7 @@ impl MainState {
             graphics::Mesh::new_rectangle(
                 ctx,
                 graphics::DrawMode::fill(),
-                Rect::new(100.0, 100.0, SQUARE_SIZE, SQUARE_SIZE),
+                Rect::new(0.0, 0.0, SQUARE_SIZE, SQUARE_SIZE),
                 square_color
             ).expect("")
 
@@ -125,7 +126,7 @@ impl MainState {
         }
 
         // Compare our "after_move" temp board
-        // With "board" recived from oppoennt
+        // With "board" received from opponent
         if manage_board::board_as_string(&after_move) != board {
             self.send_reply("REJECT");
             return;
@@ -143,7 +144,7 @@ impl MainState {
 
         self.game_state = manage_board::check_state(&self.game, self.turn);
 
-        // Give bakc the boardstate or OK if nothing
+        // Give bakc the board-state or OK if nothing
         if self.game_state == "Checkmate".to_string() {
             self.send_reply("CHECKMATE");
         }
@@ -235,7 +236,7 @@ impl event::EventHandler for MainState {
                     &graphics::Mesh::new_rectangle(
                     ctx,
                     graphics::DrawMode::fill(),
-                    Rect::new(100.0, 100.0, SQUARE_SIZE, SQUARE_SIZE),
+                    Rect::new(0.0, 0.0, SQUARE_SIZE, SQUARE_SIZE),
                     Color::from_rgba(0, 255, 0, 150)
                     )?,
                     square_position
@@ -254,7 +255,7 @@ impl event::EventHandler for MainState {
                     &graphics::Mesh::new_rectangle(
                     ctx,
                     graphics::DrawMode::fill(),
-                    Rect::new(100.0, 100.0, SQUARE_SIZE/3.0, SQUARE_SIZE/3.0),
+                    Rect::new(0.0, 0.0, SQUARE_SIZE/3.0, SQUARE_SIZE/3.0),
                     Color::from_rgba(0, 255, 0, 5)
                     )?,
 
@@ -272,7 +273,7 @@ impl event::EventHandler for MainState {
             graphics::Text::new(piece_text)
                 .set_font("chess")
                 .set_scale(SQUARE_SIZE),
-            Vec2::new(square_position[0] + SQUARE_SIZE, square_position[1] + SQUARE_SIZE*1.05),
+            Vec2::new(square_position[0], square_position[1] + SQUARE_SIZE*0.05),
             )
         }
 
@@ -280,7 +281,7 @@ impl event::EventHandler for MainState {
             let restart_game = graphics::Mesh::new_rectangle(
                 ctx, 
                 graphics::DrawMode::fill(),
-                Rect::new(250.0, 450.0, 500.0, 125.0), 
+                Rect::new(SQUARE_SIZE*1.5, SQUARE_SIZE*3.5, SQUARE_SIZE*5.0, SQUARE_SIZE*1.25), 
                 Color::from_rgba(0, 0, 0, 225)
             ).expect(" ");
 
@@ -300,13 +301,13 @@ impl event::EventHandler for MainState {
             }
 
             canvas.draw(
-                graphics::Text::new(restart_text).set_scale(40.0),
-                Vec2::new(275.0, 475.0)
+                graphics::Text::new(restart_text).set_scale(0.4*SQUARE_SIZE),
+                Vec2::new(SQUARE_SIZE*1.75, SQUARE_SIZE*3.75)
             );
             
             canvas.draw(
-                graphics::Text::new("Press any key to restart!").set_scale(30.0),
-                Vec2::new(295.0, 525.0)
+                graphics::Text::new("Press any key to restart!").set_scale(0.3*SQUARE_SIZE),
+                Vec2::new(SQUARE_SIZE*1.95, SQUARE_SIZE*4.25)
             );
             
         }
@@ -329,8 +330,8 @@ impl event::EventHandler for MainState {
 
         canvas.draw(
                 
-                graphics::Text::new(turn_text).set_scale(30.0),
-                Vec2::new(100.0, 60.0)
+                graphics::Text::new(turn_text).set_scale(0.3*SQUARE_SIZE),
+                Vec2::new(0.0, SQUARE_SIZE*8.0)
             );
     
 
@@ -348,8 +349,8 @@ impl event::EventHandler for MainState {
     ) -> Result<(), ggez::GameError>
     // What to do when a mouse button down even happens
     {
-        let column = ((x-SQUARE_SIZE) / SQUARE_SIZE) as usize;
-        let row = ((y-SQUARE_SIZE) / SQUARE_SIZE) as usize;
+        let column = ((x) / SQUARE_SIZE) as usize;
+        let row = ((y) / SQUARE_SIZE) as usize;
 
         if column >= 8 || row >= 8 {
             return Ok(());
@@ -458,7 +459,7 @@ pub fn main() -> GameResult {
     let network = match choice.trim() {
         // Setup local as host
         "1" => {
-            println!("Searching for client to join on PORT: 6767...");
+            println!("Searching for client to join on PORT: {}...", network::PORT);
 
             match network::Network::establish_as_host() {
                 Ok(network) => Some(network),
@@ -507,7 +508,11 @@ pub fn main() -> GameResult {
     };
 
     // From where should our build pull information
-    let cb = ggez::ContextBuilder::new("super_simple", "ggez").add_resource_path(resource_dir);
+    let cb = ggez::ContextBuilder::new("super_simple", "ggez")
+        .add_resource_path(resource_dir)
+        .window_mode(
+            ggez::conf::WindowMode::default().dimensions(SQUARE_SIZE*8.0, SQUARE_SIZE*9.0)
+        );
     let (mut ctx, event_loop) = cb.build()?;
     let state = MainState::new(&mut ctx, network)?;
     

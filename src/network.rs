@@ -2,7 +2,7 @@ use std::io::{Read, Write, ErrorKind};
 use std::net::{TcpListener, TcpStream};
 use chess;
 
-const PORT: u16 = 6767;
+pub const PORT: u16 = 6767;
 
 // Some network read/write code taken fromthepacketgeek.com
 
